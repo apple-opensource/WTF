@@ -42,9 +42,11 @@ public:
     StringBuilder()
         : m_length(0)
         , m_is8Bit(true)
-        , m_bufferCharacters8(0)
+        , m_bufferCharacters8(nullptr)
     {
     }
+    StringBuilder(StringBuilder&&) = default;
+    StringBuilder& operator=(StringBuilder&&) = default;
 
     WTF_EXPORT_PRIVATE void append(const UChar*, unsigned);
     WTF_EXPORT_PRIVATE void append(const LChar*, unsigned);
@@ -172,10 +174,10 @@ public:
         append(U16_TRAIL(c));
     }
 
-    WTF_EXPORT_PRIVATE void appendQuotedJSONString(const String&);
+    WTF_EXPORT_PRIVATE bool appendQuotedJSONString(const String&);
 
-    template<unsigned charactersCount>
-    ALWAYS_INLINE void appendLiteral(const char (&characters)[charactersCount]) { append(characters, charactersCount - 1); }
+    template<unsigned characterCount>
+    ALWAYS_INLINE void appendLiteral(const char (&characters)[characterCount]) { append(characters, characterCount - 1); }
 
     WTF_EXPORT_PRIVATE void appendNumber(int);
     WTF_EXPORT_PRIVATE void appendNumber(unsigned int);
