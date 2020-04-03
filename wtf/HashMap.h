@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef WTF_HashMap_h
-#define WTF_HashMap_h
+#pragma once
 
 #include <initializer_list>
 #include <wtf/Forward.h>
@@ -93,12 +92,17 @@ public:
     unsigned capacity() const;
     bool isEmpty() const;
 
+    void reserveInitialCapacity(unsigned keyCount) { m_impl.reserveInitialCapacity(keyCount); }
+
     // iterators iterate over pairs of keys and values
     iterator begin();
     iterator end();
     const_iterator begin() const;
     const_iterator end() const;
     
+    iterator random() { return m_impl.random(); }
+    const_iterator random() const { return m_impl.random(); }
+
     KeysIteratorRange keys() { return makeSizedIteratorRange(*this, begin().keys(), end().keys()); }
     const KeysConstIteratorRange keys() const { return makeSizedIteratorRange(*this, begin().keys(), end().keys()); }
 
@@ -579,5 +583,3 @@ inline bool operator!=(const HashMap<T, U, V, W, X>& a, const HashMap<T, U, V, W
 } // namespace WTF
 
 using WTF::HashMap;
-
-#endif /* WTF_HashMap_h */

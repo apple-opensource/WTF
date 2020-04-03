@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
@@ -77,9 +78,9 @@ template<typename T> struct CrossThreadCopierBase<true, false, T> : public Cross
 
 // Classes that have an isolatedCopy() method get a default specialization.
 template<class T> struct CrossThreadCopierBase<false, false, T> {
-    static T copy(const T& value)
+    template<typename U> static auto copy(U&& value)
     {
-        return value.isolatedCopy();
+        return std::forward<U>(value).isolatedCopy();
     }
 };
 
@@ -108,8 +109,8 @@ struct CrossThreadCopier : public CrossThreadCopierBase<CrossThreadCopierBaseHel
 };
 
 // Default specialization for Vectors of CrossThreadCopyable classes.
-template<typename T> struct CrossThreadCopierBase<false, false, Vector<T>> {
-    typedef Vector<T> Type;
+template<typename T, size_t inlineCapacity, typename OverflowHandler, size_t minCapacity> struct CrossThreadCopierBase<false, false, Vector<T, inlineCapacity, OverflowHandler, minCapacity>> {
+    using Type = Vector<T, inlineCapacity, OverflowHandler, minCapacity>;
     static Type copy(const Type& source)
     {
         Type destination;
@@ -132,20 +133,31 @@ template<typename T> struct CrossThreadCopierBase<false, false, HashSet<T> > {
     }
 };
 
-// Default specialization for std::optional of CrossThreadCopyable class.
-template<typename T> struct CrossThreadCopierBase<false, false, std::optional<T>> {
-    typedef std::optional<T> Type;
+// Default specialization for HashMaps of CrossThreadCopyable classes
+template<typename K, typename V> struct CrossThreadCopierBase<false, false, HashMap<K, V> > {
+    typedef HashMap<K, V> Type;
     static Type copy(const Type& source)
     {
-        if (!source)
-            return std::nullopt;
-        return CrossThreadCopier<T>::copy(*source);
+        Type destination;
+        for (auto& keyValue : source)
+            destination.add(CrossThreadCopier<K>::copy(keyValue.key), CrossThreadCopier<V>::copy(keyValue.value));
+        return destination;
     }
 };
 
-template<typename T> T crossThreadCopy(const T& source)
+// Default specialization for Optional of CrossThreadCopyable class.
+template<typename T> struct CrossThreadCopierBase<false, false, Optional<T>> {
+    template<typename U> static Optional<T> copy(U&& source)
+    {
+        if (!source)
+            return WTF::nullopt;
+        return CrossThreadCopier<T>::copy(std::forward<U>(source).value());
+    }
+};
+
+template<typename T> auto crossThreadCopy(T&& source)
 {
-    return CrossThreadCopier<T>::copy(source);
+    return CrossThreadCopier<std::remove_cv_t<std::remove_reference_t<T>>>::copy(std::forward<T>(source));
 }
     
 } // namespace WTF

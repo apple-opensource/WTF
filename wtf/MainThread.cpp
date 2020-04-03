@@ -27,27 +27,23 @@
  */
 
 #include "config.h"
-#include "MainThread.h"
+#include <wtf/MainThread.h>
 
-#include "CurrentTime.h"
-#include "Deque.h"
-#include "MonotonicTime.h"
-#include "StdLibExtras.h"
-#include "Threading.h"
 #include <mutex>
 #include <wtf/Condition.h>
+#include <wtf/Deque.h>
 #include <wtf/Lock.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RunLoop.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/ThreadSpecific.h>
+#include <wtf/Threading.h>
 
 namespace WTF {
 
 static bool callbacksPaused; // This global variable is only accessed from main thread.
-#if !PLATFORM(COCOA)
-static Thread* mainThread { nullptr };
-#endif
-
-static StaticLock mainThreadFunctionQueueMutex;
+static Lock mainThreadFunctionQueueMutex;
 
 static Deque<Function<void ()>>& functionQueue()
 {
@@ -61,20 +57,9 @@ void initializeMainThread()
 {
     std::call_once(initializeKey, [] {
         initializeThreading();
-#if !PLATFORM(COCOA)
-        mainThread = &Thread::current();
-#endif
         initializeMainThreadPlatform();
-        initializeGCThreads();
     });
 }
-
-#if !PLATFORM(COCOA)
-bool isMainThread()
-{
-    return mainThread == &Thread::current();
-}
-#endif
 
 #if PLATFORM(COCOA)
 #if !USE(WEB_THREAD)
@@ -83,7 +68,6 @@ void initializeMainThreadToProcessMainThread()
     std::call_once(initializeKey, [] {
         initializeThreading();
         initializeMainThreadToProcessMainThreadPlatform();
-        initializeGCThreads();
     });
 }
 #else
@@ -120,7 +104,7 @@ void dispatchFunctionsFromMainThread()
 
     while (true) {
         {
-            std::lock_guard<StaticLock> lock(mainThreadFunctionQueueMutex);
+            std::lock_guard<Lock> lock(mainThreadFunctionQueueMutex);
             if (!functionQueue().size())
                 break;
 
@@ -143,6 +127,16 @@ void dispatchFunctionsFromMainThread()
     }
 }
 
+bool isMainRunLoop()
+{
+    return RunLoop::isMain();
+}
+
+void callOnMainRunLoop(Function<void()>&& function)
+{
+    RunLoop::main().dispatch(WTFMove(function));
+}
+
 void callOnMainThread(Function<void()>&& function)
 {
     ASSERT(function);
@@ -150,7 +144,7 @@ void callOnMainThread(Function<void()>&& function)
     bool needToSchedule = false;
 
     {
-        std::lock_guard<StaticLock> lock(mainThreadFunctionQueueMutex);
+        std::lock_guard<Lock> lock(mainThreadFunctionQueueMutex);
         needToSchedule = functionQueue().size() == 0;
         functionQueue().append(WTFMove(function));
     }
@@ -172,49 +166,23 @@ void setMainThreadCallbacksPaused(bool paused)
         scheduleDispatchFunctionsOnMainThread();
 }
 
-static ThreadSpecific<std::optional<GCThreadType>, CanBeGCThread::True>* isGCThread;
-
-void initializeGCThreads()
-{
-    static std::once_flag flag;
-    std::call_once(
-        flag,
-        [] {
-            isGCThread = new ThreadSpecific<std::optional<GCThreadType>, CanBeGCThread::True>();
-        });
-}
-
-void registerGCThread(GCThreadType type)
-{
-    if (!isGCThread) {
-        // This happens if we're running in a process that doesn't care about
-        // MainThread.
-        return;
-    }
-
-    **isGCThread = type;
-}
-
 bool isMainThreadOrGCThread()
 {
-    if (mayBeGCThread())
+    if (Thread::mayBeGCThread())
         return true;
 
     return isMainThread();
 }
 
-std::optional<GCThreadType> mayBeGCThread()
-{
-    if (!isGCThread)
-        return std::nullopt;
-    if (!isGCThread->isSet())
-        return std::nullopt;
-    return **isGCThread;
-}
+enum class MainStyle : bool {
+    Thread,
+    RunLoop
+};
 
-void callOnMainThreadAndWait(WTF::Function<void()>&& function)
+static void callOnMainAndWait(WTF::Function<void()>&& function, MainStyle mainStyle)
 {
-    if (isMainThread()) {
+
+    if (mainStyle == MainStyle::Thread ? isMainThread() : isMainRunLoop()) {
         function();
         return;
     }
@@ -224,18 +192,36 @@ void callOnMainThreadAndWait(WTF::Function<void()>&& function)
 
     bool isFinished = false;
 
-    callOnMainThread([&, function = WTFMove(function)] {
+    auto functionImpl = [&, function = WTFMove(function)] {
         function();
 
         std::lock_guard<Lock> lock(mutex);
         isFinished = true;
         conditionVariable.notifyOne();
-    });
+    };
+
+    switch (mainStyle) {
+    case MainStyle::Thread:
+        callOnMainThread(WTFMove(functionImpl));
+        break;
+    case MainStyle::RunLoop:
+        callOnMainRunLoop(WTFMove(functionImpl));
+    };
 
     std::unique_lock<Lock> lock(mutex);
     conditionVariable.wait(lock, [&] {
         return isFinished;
     });
+}
+
+void callOnMainRunLoopAndWait(WTF::Function<void()>&& function)
+{
+    callOnMainAndWait(WTFMove(function), MainStyle::RunLoop);
+}
+
+void callOnMainThreadAndWait(WTF::Function<void()>&& function)
+{
+    callOnMainAndWait(WTFMove(function), MainStyle::Thread);
 }
 
 } // namespace WTF

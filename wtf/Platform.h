@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2019 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2009 Torch Mobile, Inc.
  * Copyright (C) 2010, 2011 Research In Motion Limited. All rights reserved.
  *
@@ -25,8 +25,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WTF_Platform_h
-#define WTF_Platform_h
+#pragma once
 
 /* Include compiler specific macros */
 #include <wtf/Compiler.h>
@@ -74,6 +73,7 @@
 #define WTF_MIPS_ISA_AT_LEAST(v) (defined WTF_MIPS_ARCH && WTF_MIPS_ARCH >= v)
 #define WTF_MIPS_ARCH_REV __mips_isa_rev
 #define WTF_MIPS_ISA_REV(v) (defined WTF_MIPS_ARCH_REV && WTF_MIPS_ARCH_REV == v)
+#define WTF_MIPS_ISA_REV_AT_LEAST(v) (defined WTF_MIPS_ARCH_REV && WTF_MIPS_ARCH_REV >= v)
 #define WTF_MIPS_DOUBLE_FLOAT (defined __mips_hard_float && !defined __mips_single_float)
 #define WTF_MIPS_FP64 (defined __mips_fpr && __mips_fpr == 64)
 /* MIPS requires allocators to use aligned memory */
@@ -89,7 +89,7 @@
 #define WTF_CPU_KNOWN 1
 #endif
 
-/* CPU(PPC64) - PowerPC 64-bit Little Endian */
+/* CPU(PPC64LE) - PowerPC 64-bit Little Endian */
 #if (   defined(__ppc64__)     \
     || defined(__PPC64__)      \
     || defined(__ppc64le__)    \
@@ -326,6 +326,32 @@
 #define WTF_CPU_NEEDS_ALIGNED_ACCESS 1
 #endif
 
+#if COMPILER(GCC_COMPATIBLE)
+/* __LP64__ is not defined on 64bit Windows since it uses LLP64. Using __SIZEOF_POINTER__ is simpler. */
+#if __SIZEOF_POINTER__ == 8
+#define WTF_CPU_ADDRESS64 1
+#elif __SIZEOF_POINTER__ == 4
+#define WTF_CPU_ADDRESS32 1
+#else
+#error "Unsupported pointer width"
+#endif
+#elif COMPILER(MSVC)
+#if defined(_WIN64)
+#define WTF_CPU_ADDRESS64 1
+#else
+#define WTF_CPU_ADDRESS32 1
+#endif
+#else
+/* This is the most generic way. But in OS(DARWIN), Platform.h can be included by sandbox definition file (.sb).
+ * At that time, we cannot include "stdint.h" header. So in the case of known compilers, we use predefined constants instead. */
+#include <stdint.h>
+#if UINTPTR_MAX > UINT32_MAX
+#define WTF_CPU_ADDRESS64 1
+#else
+#define WTF_CPU_ADDRESS32 1
+#endif
+#endif
+
 /* ==== OS() - underlying operating system; only to be used for mandated low-level services like 
    virtual memory, not to choose a GUI toolkit ==== */
 
@@ -343,11 +369,15 @@
 #include <TargetConditionals.h>
 #endif
 
-/* OS(IOS) - iOS */
-/* OS(MAC_OS_X) - Mac OS X (not including iOS) */
+/* OS(IOS_FAMILY) - iOS family, including iOS, macCatalyst, tvOS, watchOS */
+/* OS(IOS) - iOS only, not including macCatalyst */
+/* OS(MAC_OS_X) - macOS (not including iOS family) */
 #if OS(DARWIN)
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IOS && !(defined(TARGET_OS_IOSMAC) && TARGET_OS_IOSMAC)
 #define WTF_OS_IOS 1
+#endif
+#if TARGET_OS_IPHONE
+#define WTF_OS_IOS_FAMILY 1
 #elif TARGET_OS_MAC
 #define WTF_OS_MAC_OS_X 1
 #endif
@@ -356,6 +386,11 @@
 /* OS(FREEBSD) - FreeBSD */
 #if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__FreeBSD_kernel__)
 #define WTF_OS_FREEBSD 1
+#endif
+
+/* OS(FUCHSIA) - Fuchsia */
+#ifdef __Fuchsia__
+#define WTF_OS_FUCHSIA 1
 #endif
 
 /* OS(HURD) - GNU/Hurd */
@@ -390,6 +425,7 @@
 #if    OS(AIX)              \
     || OS(DARWIN)           \
     || OS(FREEBSD)          \
+    || OS(FUCHSIA)          \
     || OS(HURD)             \
     || OS(LINUX)            \
     || OS(NETBSD)           \
@@ -404,7 +440,7 @@
 
 /* CPU(BIG_ENDIAN) or CPU(MIDDLE_ENDIAN) or neither, as appropriate. */
 
-#if COMPILER(GCC_OR_CLANG)
+#if COMPILER(GCC_COMPATIBLE)
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define WTF_CPU_BIG_ENDIAN 1
 #elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -477,7 +513,9 @@
 /* PLATFORM(GTK) */
 /* PLATFORM(MAC) */
 /* PLATFORM(IOS) */
+/* PLATFORM(IOS_FAMILY) */
 /* PLATFORM(IOS_SIMULATOR) */
+/* PLATFORM(IOS_FAMILY_SIMULATOR) */
 /* PLATFORM(WIN) */
 #if defined(BUILDING_GTK__)
 #define WTF_PLATFORM_GTK 1
@@ -487,17 +525,26 @@
 /* JSCOnly does not provide PLATFORM() macro */
 #elif OS(MAC_OS_X)
 #define WTF_PLATFORM_MAC 1
-#elif OS(IOS)
+#elif OS(IOS_FAMILY)
+#if OS(IOS)
 #define WTF_PLATFORM_IOS 1
+#endif
+#define WTF_PLATFORM_IOS_FAMILY 1
 #if TARGET_OS_SIMULATOR
+#if OS(IOS)
 #define WTF_PLATFORM_IOS_SIMULATOR 1
+#endif
+#define WTF_PLATFORM_IOS_FAMILY_SIMULATOR 1
+#endif
+#if defined(TARGET_OS_IOSMAC) && TARGET_OS_IOSMAC
+#define WTF_PLATFORM_MACCATALYST 1
 #endif
 #elif OS(WINDOWS)
 #define WTF_PLATFORM_WIN 1
 #endif
 
 /* PLATFORM(COCOA) */
-#if PLATFORM(MAC) || PLATFORM(IOS)
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 #define WTF_PLATFORM_COCOA 1
 #endif
 
@@ -520,10 +567,8 @@
 /* Graphics engines */
 
 /* USE(CG) and PLATFORM(CI) */
-#if PLATFORM(COCOA) || (PLATFORM(WIN) && !USE(WINGDI) && !PLATFORM(WIN_CAIRO) && !USE(DIRECT2D))
+#if PLATFORM(COCOA)
 #define USE_CG 1
-#endif
-#if PLATFORM(COCOA) || (PLATFORM(WIN) && USE(CG) && !USE(DIRECT2D))
 #define USE_CA 1
 #endif
 
@@ -538,10 +583,11 @@
 
 #if PLATFORM(GTK)
 #define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_36
+#define GDK_VERSION_MIN_REQUIRED GDK_VERSION_3_6
 #endif
 
-#if PLATFORM(GTK) && !defined(GTK_API_VERSION_2)
-#define GDK_VERSION_MIN_REQUIRED GDK_VERSION_3_6
+#if PLATFORM(WPE)
+#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_40
 #endif
 
 #if USE(SOUP)
@@ -555,61 +601,39 @@
 
 #if PLATFORM(COCOA)
 
+#define HAVE_OUT_OF_PROCESS_LAYER_HOSTING 1
 #define USE_CF 1
+#define USE_FILE_LOCK 1
 #define USE_FOUNDATION 1
 #define USE_NETWORK_CFDATA_ARRAY_CALLBACK 1
-#define HAVE_OUT_OF_PROCESS_LAYER_HOSTING 1
-#define HAVE_DTRACE 0
-#define USE_FILE_LOCK 1
 
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-#define ENABLE_DATA_DETECTION 1
-#define HAVE_AVKIT 1
-#define HAVE_PARENTAL_CONTROLS 1
-#endif
-
-#endif
-
-#if PLATFORM(MAC)
-
-#if __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-#define USE_QTKIT 1
-#else
-#define USE_QTKIT 0
-#endif
-
-#define USE_APPKIT 1
-#define HAVE_RUNLOOP_TIMER 1
-#define HAVE_SEC_IDENTITY 1
-#define HAVE_SEC_KEYCHAIN 1
-
-#if CPU(X86_64)
-#define HAVE_NETWORK_EXTENSION 1
-#define USE_PLUGIN_HOST_PROCESS 1
-#endif
-
-/* OS X defines a series of platform macros for debugging. */
+/* Cocoa defines a series of platform macros for debugging. */
 /* Some of them are really annoying because they use common names (e.g. check()). */
 /* Disable those macros so that we are not limited in how we name methods and functions. */
 #undef __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES
 #define __ASSERT_MACROS_DEFINE_VERSIONS_WITHOUT_UNDERSCORES 0
 
+#endif
+
+#if PLATFORM(MAC)
+
+#define HAVE_RUNLOOP_TIMER 1
+#define HAVE_SEC_KEYCHAIN 1
+#define USE_APPKIT 1
+#define USE_PASSKIT 1
+
+#if CPU(X86_64)
+#define HAVE_NETWORK_EXTENSION 1
+#define USE_PLUGIN_HOST_PROCESS 1
+#endif
 #endif /* PLATFORM(MAC) */
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS_FAMILY)
 
 #define HAVE_NETWORK_EXTENSION 1
 #define HAVE_READLINE 1
 #define USE_UIKIT_EDITING 1
 #define USE_WEB_THREAD 1
-
-#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-#define USE_QUICK_LOOK 1
-#endif
-
-#if TARGET_OS_IOS
-#define HAVE_APP_LINKS 1
-#endif
 
 #if CPU(ARM64)
 #define ENABLE_JIT_CONSTANT_BLINDING 0
@@ -620,11 +644,7 @@
 #define HAVE_ARM_NEON_INTRINSICS 0
 #endif
 
-#endif /* PLATFORM(IOS) */
-
-#if PLATFORM(WIN) && !USE(WINGDI) && !PLATFORM(WIN_CAIRO)
-#define USE_CFURLCONNECTION 1
-#endif
+#endif /* PLATFORM(IOS_FAMILY) */
 
 #if !defined(HAVE_ACCESSIBILITY)
 #if PLATFORM(COCOA) || PLATFORM(WIN) || PLATFORM(GTK) || PLATFORM(WPE)
@@ -648,6 +668,7 @@
 #define HAVE_TM_GMTOFF 1
 #define HAVE_TM_ZONE 1
 #define HAVE_TIMEGM 1
+#define HAVE_PTHREAD_MAIN_NP 1
 
 #if CPU(X86_64) || CPU(ARM64)
 #define HAVE_INT128_T 1
@@ -657,6 +678,11 @@
 #if OS(UNIX)
 #define USE_PTHREADS 1
 #endif /* OS(UNIX) */
+
+#if OS(UNIX) && !OS(FUCHSIA)
+#define HAVE_RESOURCE_H 1
+#define HAVE_PTHREAD_SETSCHEDPARAM 1
+#endif
 
 #if OS(DARWIN)
 #define HAVE_DISPATCH_H 1
@@ -675,17 +701,13 @@
 #if !PLATFORM(GTK)
 #define USE_ACCELERATE 1
 #endif
-#if !PLATFORM(IOS)
+#if !PLATFORM(IOS_FAMILY)
 #define HAVE_HOSTED_CORE_ANIMATION 1
 #endif
 
 #endif /* OS(DARWIN) */
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200) || PLATFORM(IOS)
-#define HAVE_CFNETWORK_STORAGE_PARTITIONING 1
-#endif
-
-#if OS(DARWIN) || ((OS(FREEBSD) || defined(__GLIBC__) || defined(__BIONIC__)) && (CPU(X86) || CPU(X86_64) || CPU(ARM) || CPU(ARM64) || CPU(MIPS)))
+#if OS(DARWIN) || OS(FUCHSIA) || ((OS(FREEBSD) || defined(__GLIBC__) || defined(__BIONIC__)) && (CPU(X86) || CPU(X86_64) || CPU(ARM) || CPU(ARM64) || CPU(MIPS)))
 #define HAVE_MACHINE_CONTEXT 1
 #endif
 
@@ -707,6 +729,14 @@
 
 /* FIXME: move out all ENABLE() defines from here to FeatureDefines.h */
 
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/AdditionalPlatform.h>)
+#include <WebKitAdditions/AdditionalPlatform.h>
+#endif
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/AdditionalFeatureDefines.h>)
+#include <WebKitAdditions/AdditionalFeatureDefines.h>
+#endif
+
 /* Include feature macros */
 #include <wtf/FeatureDefines.h>
 
@@ -714,40 +744,54 @@
 #define USE_SYSTEM_MALLOC 1
 #endif
 
+#if CPU(ADDRESS64)
+#if OS(DARWIN) && CPU(ARM64)
+#define WTF_CPU_EFFECTIVE_ADDRESS_WIDTH 36
+#else
+/* We strongly assume that effective address width is <= 48 in 64bit architectures (e.g. NaN boxing). */
+#define WTF_CPU_EFFECTIVE_ADDRESS_WIDTH 48
+#endif
+#else
+#define WTF_CPU_EFFECTIVE_ADDRESS_WIDTH 32
+#endif
+
 #if !defined(USE_JSVALUE64) && !defined(USE_JSVALUE32_64)
-#if COMPILER(GCC_OR_CLANG)
-/* __LP64__ is not defined on 64bit Windows since it uses LLP64. Using __SIZEOF_POINTER__ is simpler. */
-#if __SIZEOF_POINTER__ == 8
-#define USE_JSVALUE64 1
-#elif __SIZEOF_POINTER__ == 4
-#define USE_JSVALUE32_64 1
-#else
-#error "Unsupported pointer width"
-#endif
-#elif COMPILER(MSVC)
-#if defined(_WIN64)
+#if CPU(ADDRESS64) || CPU(ARM64)
 #define USE_JSVALUE64 1
 #else
 #define USE_JSVALUE32_64 1
-#endif
-#else
-/* This is the most generic way. But in OS(DARWIN), Platform.h can be included by sandbox definition file (.sb).
- * At that time, we cannot include "stdint.h" header. So in the case of known compilers, we use predefined constants instead. */
-#include <stdint.h>
-#if UINTPTR_MAX > UINT32_MAX
-#define USE_JSVALUE64 1
-#else
-#define USE_JSVALUE32_64 1
-#endif
 #endif
 #endif /* !defined(USE_JSVALUE64) && !defined(USE_JSVALUE32_64) */
 
-/* The JIT is enabled by default on all x86, x86-64, ARM & MIPS platforms except ARMv7k. */
+/* The JIT is enabled by default on all x86-64 & ARM64 platforms. */
 #if !defined(ENABLE_JIT) \
-    && (CPU(X86) || CPU(X86_64) || CPU(ARM) || (CPU(ARM64) && !defined(__ILP32__)) || CPU(MIPS)) \
-    && !CPU(APPLE_ARMV7K) \
-    && !CPU(ARM64E)
+    && (CPU(X86_64) || CPU(ARM64)) \
+    && !CPU(APPLE_ARMV7K)
 #define ENABLE_JIT 1
+#endif
+
+#if USE(JSVALUE32_64)
+#if (CPU(ARM_THUMB2) || CPU(MIPS)) && OS(LINUX)
+/* On ARMv7 and MIPS on Linux the JIT is enabled unless explicitly disabled. */
+#if !defined(ENABLE_JIT)
+#define ENABLE_JIT 1
+#endif
+#else
+/* Disable JIT and force C_LOOP on all other 32bit architectures. */
+#undef ENABLE_JIT
+#define ENABLE_JIT 0
+#undef ENABLE_C_LOOP
+#define ENABLE_C_LOOP 1
+#endif
+#endif
+
+#if !defined(ENABLE_C_LOOP)
+#if ENABLE(JIT) \
+    || CPU(X86_64) || (CPU(ARM64) && !defined(__ILP32__))
+#define ENABLE_C_LOOP 0
+#else
+#define ENABLE_C_LOOP 1
+#endif
 #endif
 
 /* The FTL *does not* work on 32-bit platforms. Disable it even if someone asked us to enable it. */
@@ -757,7 +801,7 @@
 #endif
 
 /* The FTL is disabled on the iOS simulator, mostly for simplicity. */
-#if PLATFORM(IOS_SIMULATOR)
+#if PLATFORM(IOS_FAMILY_SIMULATOR)
 #undef ENABLE_FTL_JIT
 #define ENABLE_FTL_JIT 0
 #endif
@@ -765,28 +809,15 @@
 /* If possible, try to enable a disassembler. This is optional. We proceed in two
    steps: first we try to find some disassembler that we can use, and then we
    decide if the high-level disassembler API can be enabled. */
-#if !defined(USE_UDIS86) && ENABLE(JIT) && ((OS(DARWIN) && !PLATFORM(GTK)) || (OS(LINUX) && PLATFORM(GTK))) \
-    && (CPU(X86) || CPU(X86_64))
+#if !defined(USE_UDIS86) && ENABLE(JIT) && (CPU(X86) || CPU(X86_64)) && !USE(CAPSTONE)
 #define USE_UDIS86 1
 #endif
 
-#if !defined(ENABLE_DISASSEMBLER) && USE(UDIS86)
-#define ENABLE_DISASSEMBLER 1
-#endif
-
-#if !defined(USE_ARM64_DISASSEMBLER) && ENABLE(JIT) && CPU(ARM64)
+#if !defined(USE_ARM64_DISASSEMBLER) && ENABLE(JIT) && CPU(ARM64) && !USE(CAPSTONE)
 #define USE_ARM64_DISASSEMBLER 1
 #endif
 
-#if !defined(USE_ARMV7_DISASSEMBLER) && ENABLE(JIT) && CPU(ARM_THUMB2)
-#define USE_ARMV7_DISASSEMBLER 1
-#endif
-
-#if !defined(USE_ARM_LLVM_DISASSEMBLER) && ENABLE(JIT) && CPU(ARM_TRADITIONAL) && HAVE(LLVM)
-#define USE_ARM_LLVM_DISASSEMBLER 1
-#endif
-
-#if !defined(ENABLE_DISASSEMBLER) && (USE(UDIS86) || USE(ARMV7_DISASSEMBLER) || USE(ARM64_DISASSEMBLER) || USE(ARM_LLVM_DISASSEMBLER))
+#if !defined(ENABLE_DISASSEMBLER) && (USE(UDIS86) || USE(ARM64_DISASSEMBLER) || (ENABLE(JIT) && USE(CAPSTONE)))
 #define ENABLE_DISASSEMBLER 1
 #endif
 
@@ -795,12 +826,8 @@
 #if (CPU(X86) || CPU(X86_64)) && (OS(DARWIN) || OS(LINUX) || OS(FREEBSD) || OS(HURD) || OS(WINDOWS))
 #define ENABLE_DFG_JIT 1
 #endif
-/* Enable the DFG JIT on ARMv7.  Only tested on iOS and GTK+/WPE Linux. */
-#if (CPU(ARM_THUMB2) || CPU(ARM64)) && (PLATFORM(IOS) || PLATFORM(GTK) || PLATFORM(WPE))
-#define ENABLE_DFG_JIT 1
-#endif
-/* Enable the DFG JIT on ARM. */
-#if CPU(ARM_TRADITIONAL)
+/* Enable the DFG JIT on ARMv7.  Only tested on iOS, Linux, and FreeBSD. */
+#if (CPU(ARM_THUMB2) || CPU(ARM64)) && (PLATFORM(IOS_FAMILY) || OS(LINUX) || OS(FREEBSD))
 #define ENABLE_DFG_JIT 1
 #endif
 /* Enable the DFG JIT on MIPS. */
@@ -825,12 +852,7 @@
 #define ENABLE_FAST_TLS_JIT 1
 #endif
 
-/* This feature is currently disabled because WebCore will context switch VMs without telling JSC.
-   FIXME: Re-enable this feature.
-   https://bugs.webkit.org/show_bug.cgi?id=182173 */
-#define USE_FAST_TLS_FOR_TLC 0
-
-#if CPU(X86) || CPU(X86_64) || CPU(ARM_THUMB2) || CPU(ARM64) || CPU(ARM_TRADITIONAL) || CPU(MIPS)
+#if CPU(X86) || CPU(X86_64) || CPU(ARM_THUMB2) || CPU(ARM64) || CPU(MIPS)
 #define ENABLE_MASM_PROBE 1
 #else
 #define ENABLE_MASM_PROBE 0
@@ -862,7 +884,7 @@
 #endif
 
 #if !defined(ENABLE_WEBASSEMBLY)
-#if ENABLE(B3_JIT) && PLATFORM(COCOA)
+#if ENABLE(B3_JIT) && PLATFORM(COCOA) && CPU(ADDRESS64)
 #define ENABLE_WEBASSEMBLY 1
 #else
 #define ENABLE_WEBASSEMBLY 0
@@ -874,7 +896,7 @@
  * In configurations other than Windows and Darwin, because layout of mcontext_t depends on standard libraries (like glibc),
  * sampling profiler is enabled if WebKit uses pthreads and glibc. */
 #if !defined(ENABLE_SAMPLING_PROFILER)
-#if ENABLE(JIT) && (OS(WINDOWS) || HAVE(MACHINE_CONTEXT))
+#if !ENABLE(C_LOOP) && (OS(WINDOWS) || HAVE(MACHINE_CONTEXT))
 #define ENABLE_SAMPLING_PROFILER 1
 #else
 #define ENABLE_SAMPLING_PROFILER 0
@@ -914,7 +936,7 @@
 /* Configure the JIT */
 #if CPU(X86) && COMPILER(MSVC)
 #define JSC_HOST_CALL __fastcall
-#elif CPU(X86) && COMPILER(GCC_OR_CLANG)
+#elif CPU(X86) && COMPILER(GCC_COMPATIBLE)
 #define JSC_HOST_CALL __attribute__ ((fastcall))
 #else
 #define JSC_HOST_CALL
@@ -952,17 +974,23 @@
 #define JIT_OPERATION
 #endif
 
+#if PLATFORM(IOS_FAMILY) && CPU(ARM64) && (!ENABLE(FAST_JIT_PERMISSIONS) || !CPU(ARM64E))
+#define ENABLE_SEPARATED_WX_HEAP 1
+#else
+#define ENABLE_SEPARATED_WX_HEAP 0
+#endif
+
 /* Configure the interpreter */
-#if COMPILER(GCC_OR_CLANG)
+#if COMPILER(GCC_COMPATIBLE)
 #define HAVE_COMPUTED_GOTO 1
 #endif
 
 /* Determine if we need to enable Computed Goto Opcodes or not: */
-#if HAVE(COMPUTED_GOTO) || ENABLE(JIT)
+#if HAVE(COMPUTED_GOTO) || !ENABLE(C_LOOP)
 #define ENABLE_COMPUTED_GOTO_OPCODES 1
 #endif
 
-#if ENABLE(JIT) && !COMPILER(MSVC) && \
+#if !defined(USE_LLINT_EMBEDDED_OPCODE_ID) && !ENABLE(C_LOOP) && !COMPILER(MSVC) && \
     (CPU(X86) || CPU(X86_64) || CPU(ARM64) || (CPU(ARM_THUMB2) && OS(DARWIN)))
 /* This feature works by embedding the OpcodeID in the 32 bit just before the generated LLint code
    that executes each opcode. It cannot be supported by the CLoop since there's no way to embed the
@@ -984,14 +1012,15 @@
 
 #if ENABLE(YARR_JIT)
 #if CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS))
-/* Enable JIT'ing Regular Expressions that have nested parenthesis. */
+/* Enable JIT'ing Regular Expressions that have nested parenthesis and back references. */
 #define ENABLE_YARR_JIT_ALL_PARENS_EXPRESSIONS 1
+#define ENABLE_YARR_JIT_BACKREFERENCES 1
 #endif
 #endif
 
 /* If either the JIT or the RegExp JIT is enabled, then the Assembler must be
    enabled as well: */
-#if ENABLE(JIT) || ENABLE(YARR_JIT)
+#if ENABLE(JIT) || ENABLE(YARR_JIT) || !ENABLE(C_LOOP)
 #if defined(ENABLE_ASSEMBLER) && !ENABLE_ASSEMBLER
 #error "Cannot enable the JIT or RegExp JIT without enabling the Assembler"
 #else
@@ -1022,52 +1051,101 @@
 #define ENABLE_SIGNAL_BASED_VM_TRAPS 1
 #endif
 
-#define ENABLE_POISON 1
-/* Not currently supported for 32-bit or OS(WINDOWS) builds (because of missing llint support). Make sure it's disabled. */
-#if USE(JSVALUE32_64) || OS(WINDOWS)
-#undef ENABLE_POISON
-#define ENABLE_POISON 0
-#endif
-
 /* CSS Selector JIT Compiler */
 #if !defined(ENABLE_CSS_SELECTOR_JIT)
-#if (CPU(X86_64) || CPU(ARM64) || (CPU(ARM_THUMB2) && PLATFORM(IOS))) && ENABLE(JIT) && (OS(DARWIN) || PLATFORM(GTK) || PLATFORM(WPE))
+#if (CPU(X86_64) || CPU(ARM64) || (CPU(ARM_THUMB2) && PLATFORM(IOS_FAMILY))) && ENABLE(JIT) && (OS(DARWIN) || PLATFORM(GTK) || PLATFORM(WPE))
 #define ENABLE_CSS_SELECTOR_JIT 1
 #else
 #define ENABLE_CSS_SELECTOR_JIT 0
 #endif
 #endif
 
+#if CPU(ARM64E) && OS(DARWIN)
+#define HAVE_FJCVTZS_INSTRUCTION 1
+#endif
+
+#if PLATFORM(IOS)
+#define HAVE_APP_LINKS 1
+#define USE_PASSKIT 1
+#define USE_QUICK_LOOK 1
+#define USE_SYSTEM_PREVIEW 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST)
+#define HAVE_CELESTIAL 1
+#define HAVE_CORE_ANIMATION_RENDER_SERVER 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(MACCATALYST) && !PLATFORM(APPLETV)
+#define HAVE_PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER 1
+#endif
+
+#if PLATFORM(COCOA)
+
+#define USE_AVFOUNDATION 1
+#define USE_PROTECTION_SPACE_AUTH_CALLBACK 1
+
+#if !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) && !PLATFORM(MACCATALYST)
+#define ENABLE_DATA_DETECTION 1
+#endif
+
+#if !PLATFORM(APPLETV)
+#define HAVE_PARENTAL_CONTROLS 1
+#endif
+
+#if !PLATFORM(APPLETV)
+#define HAVE_AVKIT 1
+#endif
+
+#if ENABLE(WEBGL)
+/* USE_ANGLE=1 uses ANGLE for the WebGL backend.
+   It replaces USE_OPENGL, USE_OPENGL_ES and USE_EGL. */
+#if PLATFORM(MAC)
+#define USE_OPENGL 1
+#define USE_OPENGL_ES 0
+#define USE_ANGLE 0
+#elif PLATFORM(MACCATALYST) && __has_include(<OpenGL/OpenGL.h>)
+#define USE_OPENGL 1
+#define USE_OPENGL_ES 0
+#define USE_ANGLE 0
+#else
+#define USE_OPENGL 0
+#define USE_OPENGL_ES 1
+#define USE_ANGLE 0
+#endif
+#if PLATFORM(COCOA)
+#ifndef GL_SILENCE_DEPRECATION
+#define GL_SILENCE_DEPRECATION 1
+#endif
+#endif
+#endif
+
+#define USE_METAL 1
+
+#if ENABLE(ACCESSIBILITY)
+#define USE_ACCESSIBILITY_CONTEXT_MENUS 1
+#endif
+
+#endif
+
 #if ENABLE(WEBGL) && PLATFORM(WIN)
 #define USE_OPENGL 1
-#define USE_OPENGL_ES_2 1
+#define USE_OPENGL_ES 1
 #define USE_EGL 1
 #endif
 
-#if ENABLE(VIDEO) && PLATFORM(WIN_CAIRO)
-#if ENABLE(GSTREAMER_WINCAIRO)
-#define USE_MEDIA_FOUNDATION 0
-#define USE_GLIB 1
-#define USE_GSTREAMER 1
-#else
-#define USE_MEDIA_FOUNDATION 1
-#endif
+#if ENABLE(WEBGL)
+#if !defined(USE_ANGLE)
+#define USE_ANGLE 0
 #endif
 
-#if PLATFORM(WIN_CAIRO)
-#define USE_TEXTURE_MAPPER 1
+#if (USE_ANGLE && (USE_OPENGL || USE_OPENGL_ES || (defined(USE_EGL) && USE_EGL)))
+#error USE_ANGLE is incompatible with USE_OPENGL, USE_OPENGL_ES and USE_EGL
+#endif
 #endif
 
 #if USE(TEXTURE_MAPPER) && ENABLE(GRAPHICS_CONTEXT_3D) && !defined(USE_TEXTURE_MAPPER_GL)
 #define USE_TEXTURE_MAPPER_GL 1
-#endif
-
-#if PLATFORM(COCOA)
-#define USE_PROTECTION_SPACE_AUTH_CALLBACK 1
-#endif
-
-#if PLATFORM(COCOA) && HAVE(ACCESSIBILITY)
-#define USE_ACCESSIBILITY_CONTEXT_MENUS 1
 #endif
 
 #if CPU(ARM_THUMB2) || CPU(ARM64)
@@ -1086,16 +1164,8 @@
 #include <wtf/glib/GTypedefs.h>
 #endif
 
-/* FIXME: This define won't be needed once #27551 is fully landed. However,
-   since most ports try to support sub-project independence, adding new headers
-   to WTF causes many ports to break, and so this way we can address the build
-   breakages one port at a time. */
 #if !defined(USE_EXPORT_MACROS) && (PLATFORM(COCOA) || OS(WINDOWS))
 #define USE_EXPORT_MACROS 1
-#endif
-
-#if !defined(USE_EXPORT_MACROS_FOR_TESTING) && (PLATFORM(GTK) || OS(WINDOWS))
-#define USE_EXPORT_MACROS_FOR_TESTING 1
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -1114,10 +1184,6 @@
 #define ENABLE_BINDING_INTEGRITY 1
 #endif
 
-#if PLATFORM(COCOA)
-#define USE_AVFOUNDATION 1
-#endif
-
 #if !defined(ENABLE_TREE_DEBUGGING)
 #if !defined(NDEBUG)
 #define ENABLE_TREE_DEBUGGING 1
@@ -1126,27 +1192,33 @@
 #endif
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC)
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
 #define USE_COREMEDIA 1
-#define HAVE_AVFOUNDATION_VIDEO_OUTPUT 1
 #define USE_VIDEOTOOLBOX 1
+#define HAVE_AVFOUNDATION_VIDEO_OUTPUT 1
+#define HAVE_CORE_VIDEO 1
+#define HAVE_MEDIA_PLAYER 1
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC) || (OS(WINDOWS) && USE(CG))
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
 #define HAVE_AVFOUNDATION_MEDIA_SELECTION_GROUP 1
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC) || (OS(WINDOWS) && USE(CG))
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
 #define HAVE_AVFOUNDATION_LEGIBLE_OUTPUT_SUPPORT 1
 #define HAVE_MEDIA_ACCESSIBILITY_FRAMEWORK 1
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC)
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
 #define HAVE_AVFOUNDATION_LOADER_DELEGATE 1
 #endif
 
-#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+#if !PLATFORM(WIN)
 #define USE_REQUEST_ANIMATION_FRAME_DISPLAY_MONITOR 1
+#endif
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+#define HAVE_APPLE_GRAPHICS_CONTROL 1
 #endif
 
 #if PLATFORM(MAC)
@@ -1192,7 +1264,7 @@
 #define USE_INSERTION_UNDO_GROUPING 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS)
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 #define HAVE_AVASSETREADER 1
 #endif
 
@@ -1204,8 +1276,12 @@
 #define USE_AUDIO_SESSION 1
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(IOS_SIMULATOR)
-#define USE_IOSURFACE 1
+#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+#define HAVE_IOSURFACE 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && !PLATFORM(MACCATALYST)
+#define HAVE_IOSURFACE_ACCELERATOR 1
 #endif
 
 #if PLATFORM(COCOA)
@@ -1215,11 +1291,6 @@
 #if PLATFORM(GTK) || PLATFORM(WPE)
 #undef ENABLE_OPENTYPE_VERTICAL
 #define ENABLE_OPENTYPE_VERTICAL 1
-#define ENABLE_CSS3_TEXT_DECORATION_SKIP_INK 1
-#endif
-
-#if PLATFORM(COCOA)
-#define ENABLE_CSS3_TEXT_DECORATION_SKIP_INK 1
 #endif
 
 #if COMPILER(MSVC)
@@ -1251,15 +1322,14 @@
 #define USE_MEDIATOOLBOX 1
 #endif
 
-/* FIXME: Enable USE_OS_LOG when building with the public iOS 10 SDK once we fix <rdar://problem/27758343>. */
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200) || (PLATFORM(IOS) && USE(APPLE_INTERNAL_SDK))
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 #define USE_OS_LOG 1
 #if USE(APPLE_INTERNAL_SDK)
 #define USE_OS_STATE 1
 #endif
 #endif
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200) || PLATFORM(IOS)
+#if PLATFORM(COCOA)
 #define HAVE_SEC_TRUST_SERIALIZATION 1
 #endif
 
@@ -1287,7 +1357,7 @@
 #endif
 #endif
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
+#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
 #define USE_MEDIAREMOTE 1
 #endif
 
@@ -1296,29 +1366,265 @@
 #pragma strict_gs_check(on)
 #endif
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101201 && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
+#if PLATFORM(MAC)
 #define HAVE_TOUCH_BAR 1
-#define HAVE_ADVANCED_SPELL_CHECKING 1
+#define USE_DICTATION_ALTERNATIVES 1
 
 #if defined(__LP64__)
 #define ENABLE_WEB_PLAYBACK_CONTROLS_MANAGER 1
 #endif
-#endif /* PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101201 && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200 */
+#endif /* PLATFORM(MAC) */
 
 #if PLATFORM(COCOA) && ENABLE(WEB_RTC)
 #define USE_LIBWEBRTC 1
 #endif
 
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) || USE(GCRYPT)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || USE(GCRYPT)
 #define HAVE_RSA_PSS 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS_FAMILY)
+#define USE_SOURCE_APPLICATION_AUDIT_DATA 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_HSTS_STORAGE_PATH 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || PLATFORM(IOS) || PLATFORM(MACCATALYST)
+#define HAVE_URL_FORMATTING 1
 #endif
 
 #if !OS(WINDOWS)
 #define HAVE_STACK_BOUNDS_FOR_NEW_THREAD 1
 #endif
 
-#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || PLATFORM(IOS) || PLATFORM(MACCATALYST)
 #define HAVE_AVCONTENTKEYSESSION 1
 #endif
 
-#endif /* WTF_Platform_h */
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || PLATFORM(IOS) || PLATFORM(MACCATALYST)
+#define HAVE_SEC_KEY_PROXY 1
+#endif
+
+#if PLATFORM(COCOA) && USE(CA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+#define USE_IOSURFACE_CANVAS_BACKING_STORE 1
+#endif
+
+/* FIXME: Should this be enabled or IOS_FAMILY, not just IOS? */
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || PLATFORM(IOS)
+#define HAVE_FOUNDATION_WITH_SAVE_COOKIES_WITH_COMPLETION_HANDLER 1
+#endif
+
+/* FIXME: Should this be enabled for IOS_FAMILY, not just IOS? */
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || PLATFORM(IOS)
+#define HAVE_FOUNDATION_WITH_SAME_SITE_COOKIE_SUPPORT 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101400
+#define HAVE_NSHTTPCOOKIESTORAGE__INITWITHIDENTIFIER_WITH_INACCURATE_NULLABILITY 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101302 && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || PLATFORM(IOS_FAMILY)
+#define HAVE_CFNETWORK_WITH_CONTENT_ENCODING_SNIFFING_OVERRIDE 1
+/* The override isn't needed on iOS family, as the default behavior is to not sniff. */
+/* FIXME: This should probably be enabled on 10.13.2 and newer, not just 10.14 and newer. */
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+#define USE_CFNETWORK_CONTENT_ENCODING_SNIFFING_OVERRIDE 1
+#endif
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101302 && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || PLATFORM(IOS_FAMILY)
+#define HAVE_CFNETWORK_WITH_IGNORE_HSTS 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300 && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101302) || PLATFORM(IOS_FAMILY)
+#define HAVE_CFNETWORK_WITH_AUTO_ADDED_HTTP_HEADER_SUPPRESSION_SUPPORT 1
+/* FIXME: Does this work, and is this needed on other iOS family platforms? */
+#if PLATFORM(MAC) || PLATFORM(IOS)
+#define USE_CFNETWORK_AUTO_ADDED_HTTP_HEADER_SUPPRESSION 1
+#endif
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || PLATFORM(GTK)
+#define HAVE_OS_DARK_MODE_SUPPORT 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+#define HAVE_CG_FONT_RENDERING_GET_FONT_SMOOTHING_DISABLED 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_CA_WHERE_ADDITIVE_TRANSFORMS_ARE_REVERSED 1
+#endif
+
+#ifdef __APPLE__
+#define HAVE_FUNC_USLEEP 1
+#endif
+
+#if PLATFORM(MAC) || PLATFORM(WPE)
+/* FIXME: This really needs a descriptive name, this "new theme" was added in 2008. */
+#define USE_NEW_THEME 1
+#endif
+
+#if PLATFORM(MAC)
+#define HAVE_WINDOW_SERVER_OCCLUSION_NOTIFICATIONS 1
+#endif
+
+#if PLATFORM(COCOA)
+#define HAVE_SEC_ACCESS_CONTROL 1
+#endif
+
+#if PLATFORM(IOS)
+/* FIXME: SafariServices.framework exists on macOS. It is only used by WebKit on iOS, so the behavior is correct, but the name is misleading. */
+#define HAVE_SAFARI_SERVICES_FRAMEWORK 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300 && !defined(__i386__)) || PLATFORM(IOS) || PLATFORM(WATCHOS)
+#define HAVE_SAFE_BROWSING 1
+#endif
+
+#if PLATFORM(IOS)
+#define HAVE_LINK_PREVIEW 1
+#endif
+
+#if PLATFORM(COCOA)
+/* FIXME: This is a USE style macro, as it triggers the use of CFURLConnection framework stubs. */
+/* FIXME: Is this still necessary? CFURLConnection isn't used on Cocoa platforms any more. */
+#define ENABLE_SEC_ITEM_SHIM 1
+#endif
+
+#if (PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400))
+#define HAVE_ACCESSIBILITY_SUPPORT 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+#define HAVE_ACCESSIBILITY_BUNDLES_PATH 1
+#endif
+
+#if PLATFORM(MAC)
+#define ENABLE_FULL_KEYBOARD_ACCESS 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400)
+#define HAVE_AUTHORIZATION_STATUS_FOR_MEDIA_TYPE 1
+#endif
+
+#if (PLATFORM(MAC) && (__MAC_OS_X_VERSION_MIN_REQUIRED == 101200 || (__MAC_OS_X_VERSION_MIN_REQUIRED >= 101400 && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101404))) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 120000 && __IPHONE_OS_VERSION_MAX_ALLOWED >= 120200) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 50000 && __WATCH_OS_VERSION_MAX_ALLOWED >= 50200) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 120000 && __TV_OS_VERSION_MAX_ALLOWED >= 120200)
+#define HAVE_CFNETWORK_OVERRIDE_SESSION_COOKIE_ACCEPT_POLICY 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_CFNETWORK_NSURLSESSION_STRICTRUSTEVALUATE 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_CFNETWORK_NEGOTIATED_SSL_PROTOCOL_CIPHER 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+#define HAVE_CSCHECKFIXDISABLE 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_SANDBOX_ISSUE_MACH_EXTENSION_TO_PROCESS_BY_PID 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500)
+#define HAVE_SANDBOX_ISSUE_READ_EXTENSION_TO_PROCESS_BY_PID 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_MDNS_FAST_REGISTRATION 1
+#endif
+
+#if PLATFORM(MAC)
+#define ENABLE_MONOSPACE_FONT_EXCEPTION (__MAC_OS_X_VERSION_MIN_REQUIRED < 101500)
+#elif PLATFORM(IOS_FAMILY)
+#define ENABLE_MONOSPACE_FONT_EXCEPTION (__IPHONE_OS_VERSION_MIN_REQUIRED < 130000)
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || PLATFORM(IOS_FAMILY)
+#define HAVE_DISALLOWABLE_USER_INSTALLED_FONTS 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_CTFONTCREATEFORCHARACTERSWITHLANGUAGEANDOPTION 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+#define HAVE_ARKIT_QUICK_LOOK_PREVIEW_ITEM 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+#define HAVE_UI_WK_DOCUMENT_CONTEXT 1
+#endif
+
+#if PLATFORM(MACCATALYST)
+#define ENABLE_PLATFORM_DRIVEN_TEXT_CHECKING 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_ALLOWS_SENSITIVE_LOGGING 1
+#define HAVE_FAIRPLAYSTREAMING_CENC_INITDATA 1
+#endif
+
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_UI_SCROLL_VIEW_INDICATOR_FLASHING_SPI 1
+#endif
+
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_APP_LINKS_WITH_ISENABLED 1
+#endif
+
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_ROUTE_SHARING_POLICY_LONG_FORM_VIDEO 1
+#endif
+
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 120000 && !PLATFORM(IOS_SIMULATOR))
+#define HAVE_DEVICE_MANAGEMENT 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101500
+#define USE_REALPATH_FOR_DLOPEN_PREFLIGHT 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_NSURLSESSION_WEBSOCKET 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 120000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 50000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 120000)
+#define HAVE_CORETEXT_AUTO_OPTICAL_SIZING 1
+#endif
+
+#if (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000 || PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500)
+#define HAVE_APP_SSO 1
+#endif
+
+#if PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+#define USE_UICONTEXTMENU 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED <= 101300
+#define USE_INTEL_METAL_WORKAROUND 1
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+#define HAVE_SUBVIEWS_IVAR_SPI 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300) || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 40000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 110000)
+#define USE_PLATFORM_SYSTEM_FALLBACK_LIST 1
+#endif
+
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || (PLATFORM(IOS) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define HAVE_DESIGN_SYSTEM_UI_FONTS 1
+#endif
+
+#if (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000) || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 60000) || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 130000)
+#define USE_HIRAGINO_SANS_WORKAROUND 1
+#endif

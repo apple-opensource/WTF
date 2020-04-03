@@ -23,10 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef WTF_Condition_h
-#define WTF_Condition_h
+#pragma once
 
-#include <wtf/CurrentTime.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/ParkingLot.h>
 #include <wtf/TimeWithDynamicClockType.h>
@@ -36,11 +34,11 @@ namespace WTF {
 // This is a condition variable that is suitable for use with any lock-like object, including
 // our own WTF::Lock. It features standard wait()/notifyOne()/notifyAll() methods in addition to
 // a variety of wait-with-timeout methods. This includes methods that use WTF's own notion of
-// time, like wall-clock time (i.e. currentTime()) and monotonic time (i.e.
-// monotonicallyIncreasingTime()). This is a very efficient condition variable. It only requires
-// one byte of memory. notifyOne() and notifyAll() require just a load and branch for the fast
-// case where no thread is waiting. This condition variable, when used with WTF::Lock, can
-// outperform a system condition variable and lock by up to 58x.
+// time, like wall-clock time (i.e. WallTime) and monotonic time (i.e. MonotonicTime). This is
+// a very efficient condition variable. It only requires one byte of memory. notifyOne() and
+// notifyAll() require just a load and branch for the fast case where no thread is waiting.
+// This condition variable, when used with WTF::Lock, can outperform a system condition variable
+// and lock by up to 58x.
 class Condition {
     WTF_MAKE_NONCOPYABLE(Condition);
 public:
@@ -49,7 +47,7 @@ public:
     // are unlikely to be affected by the cost of conversions, it is better to use MonotonicTime.
     using Time = ParkingLot::Time;
 
-    Condition() = default;
+    constexpr Condition() = default;
 
     // Wait on a parking queue while releasing the given lock. It will unlock the lock just before
     // parking, and relock it upon wakeup. Returns true if we woke up due to some call to
@@ -179,6 +177,3 @@ using StaticCondition = Condition;
 
 using WTF::Condition;
 using WTF::StaticCondition;
-
-#endif // WTF_Condition_h
-

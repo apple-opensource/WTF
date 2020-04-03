@@ -24,7 +24,7 @@
  */
 
 #include "config.h"
-#include "RunLoop.h"
+#include <wtf/RunLoop.h>
 
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
@@ -58,7 +58,7 @@ void RunLoop::initializeMainRunLoop()
 
 RunLoop& RunLoop::current()
 {
-    static NeverDestroyed<ThreadSpecific<Holder, CanBeGCThread::True>> runLoopHolder;
+    static NeverDestroyed<ThreadSpecific<Holder>> runLoopHolder;
     return runLoopHolder.get()->runLoop();
 }
 

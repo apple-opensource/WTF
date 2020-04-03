@@ -24,20 +24,19 @@
  */
 
 #include "config.h"
-#include "ParkingLot.h"
+#include <wtf/ParkingLot.h>
 
-#include "CurrentTime.h"
-#include "DataLog.h"
-#include "HashFunctions.h"
-#include "StringPrintStream.h"
-#include "ThreadSpecific.h"
-#include "Threading.h"
-#include "Vector.h"
-#include "WeakRandom.h"
-#include "WordLock.h"
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <wtf/DataLog.h>
+#include <wtf/HashFunctions.h>
+#include <wtf/StringPrintStream.h>
+#include <wtf/ThreadSpecific.h>
+#include <wtf/Threading.h>
+#include <wtf/Vector.h>
+#include <wtf/WeakRandom.h>
+#include <wtf/WordLock.h>
 
 namespace WTF {
 
@@ -133,7 +132,7 @@ public:
         ThreadData** currentPtr = &queueHead;
         ThreadData* previous = nullptr;
 
-        double time = monotonicallyIncreasingTimeMS();
+        MonotonicTime time = MonotonicTime::now();
         bool timeToBeFair = false;
         if (time > nextFairTime)
             timeToBeFair = true;
@@ -170,7 +169,7 @@ public:
         }
         
         if (timeToBeFair && didDequeue)
-            nextFairTime = time + random.get();
+            nextFairTime = time + Seconds::fromMilliseconds(random.get());
 
         ASSERT(!!queueHead == !!queueTail);
     }
@@ -193,7 +192,7 @@ public:
     // this lock.
     WordLock lock;
     
-    double nextFairTime { 0 };
+    MonotonicTime nextFairTime;
     
     WeakRandom random;
 
@@ -206,7 +205,7 @@ struct Hashtable;
 
 // We track all allocated hashtables so that hashtable resizing doesn't anger leak detectors.
 Vector<Hashtable*>* hashtables;
-StaticWordLock hashtablesLock;
+WordLock hashtablesLock;
 
 struct Hashtable {
     unsigned size;
@@ -595,7 +594,7 @@ NEVER_INLINE ParkingLot::ParkResult ParkingLot::parkConditionallyImpl(
         MutexLocker locker(me->parkingLock);
         while (me->address && timeout.nowWithSameClock() < timeout) {
             me->parkingCondition.timedWait(
-                me->parkingLock, timeout.approximateWallTime().secondsSinceEpoch().value());
+                me->parkingLock, timeout.approximateWallTime());
             
             // It's possible for the OS to decide not to wait. If it does that then it will also
             // decide not to release the lock. If there's a bug in the time math, then this could

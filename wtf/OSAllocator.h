@@ -23,8 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef OSAllocator_h
-#define OSAllocator_h
+#pragma once
 
 #include <algorithm>
 #include <wtf/VMTags.h>
@@ -36,7 +35,6 @@ public:
     enum Usage {
         UnknownUsage = -1,
         FastMallocPages = VM_TAG_FOR_TCMALLOC_MEMORY,
-        JSVMStackPages = VM_TAG_FOR_REGISTERFILE_MEMORY,
         JSJITCodePages = VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY,
     };
 
@@ -98,5 +96,3 @@ inline T* OSAllocator::reallocateCommitted(T* oldBase, size_t oldSize, size_t ne
 } // namespace WTF
 
 using WTF::OSAllocator;
-
-#endif // OSAllocator_h
