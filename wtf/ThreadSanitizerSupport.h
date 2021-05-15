@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +25,29 @@
 
 #pragma once
 
-#include <cstdint>
-#include <utility>
+#include <wtf/Compiler.h>
 
-namespace WTF {
-    
-template<typename T>
-struct DumbPtrTraits {
-    template<typename U> using RebindTraits = DumbPtrTraits<U>;
+// FIXME: Remove this header when <rdar://problem/56654773> is fixed.
 
-    using StorageType = T*;
+#if TSAN_ENABLED
 
-    template<typename U>
-    static ALWAYS_INLINE T* exchange(StorageType& ptr, U&& newValue) { return std::exchange(ptr, newValue); }
+WTF_EXTERN_C_BEGIN
+void AnnotateHappensBefore(const char* file, int line, const void* addr);
+void AnnotateHappensAfter(const char* file, int line, const void* addr);
+WTF_EXTERN_C_END
 
-    static ALWAYS_INLINE void swap(StorageType& a, StorageType& b) { std::swap(a, b); }
-    static ALWAYS_INLINE T* unwrap(const StorageType& ptr) { return ptr; }
+#define TSAN_ANNOTATE_HAPPENS_BEFORE(addr) \
+    do { \
+        AnnotateHappensBefore(__FILE__, __LINE__, addr); \
+    } while (0)
+#define TSAN_ANNOTATE_HAPPENS_AFTER(addr)  \
+    do { \
+        AnnotateHappensAfter(__FILE__, __LINE__, addr); \
+    } while (0)
 
-    static StorageType hashTableDeletedValue() { return bitwise_cast<StorageType>(static_cast<uintptr_t>(-1)); }
-    static ALWAYS_INLINE bool isHashTableDeletedValue(const StorageType& ptr) { return ptr == hashTableDeletedValue(); }
-};
+#else
 
-} // namespace WTF
+#define TSAN_ANNOTATE_HAPPENS_BEFORE(addr) ((void)0)
+#define TSAN_ANNOTATE_HAPPENS_AFTER(addr)  ((void)0)
 
-using WTF::DumbPtrTraits;
+#endif // TSAN_ENABLED
